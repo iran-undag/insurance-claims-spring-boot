@@ -1,0 +1,9 @@
+package com.companyx.insuranceclaims.exception;
+
+public enum ApiErrorCode {
+	CLAIM_NOT_FOUND,
+	DUPLICATE_CLAIM_NUMBER,
+	VALIDATION_FAILED,
+	INVALID_PAGE,
+	INVALID_PAGE_SIZE
+}

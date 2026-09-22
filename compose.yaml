@@ -1,0 +1,39 @@
+services:
+    postgres:
+        image: postgres:16-alpine
+        container_name: insurance-claims-spring-boot-postgres
+        environment:
+            POSTGRES_DB: postgres
+            POSTGRES_USER: ${DB_USERNAME}
+            POSTGRES_PASSWORD: ${DB_PASSWORD}
+        ports:
+            - "5432:5432"
+        volumes:
+            - claims_boot_pg_data:/var/lib/postgresql/data
+            - ./database/00-init.sql:/docker-entrypoint-initdb.d/00-init.sql:ro
+            - ./database/01-add-claim-status-history.sql:/docker-entrypoint-initdb.d/01-add-claim-status-history.sql:ro
+        healthcheck:
+            test:
+                - CMD-SHELL
+                - pg_isready -U $${POSTGRES_USER} -d postgres
+            interval: 5s
+            timeout: 5s
+            retries: 10
+    app:
+        build:
+            context: .
+        image: insurance-claims-spring-boot:baseline
+        container_name: insurance-claims-spring-boot-app
+        environment:
+            DB_URL: jdbc:postgresql://postgres:5432/insurance_claims_boot
+            DB_USERNAME: ${DB_USERNAME}
+            DB_PASSWORD: ${DB_PASSWORD}
+        ports:
+            - "8082:8082"
+        depends_on:
+            postgres:
+                condition: service_healthy
+            
+volumes:    
+    claims_boot_pg_data:            
+            
