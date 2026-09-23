@@ -17,6 +17,7 @@ import com.companyx.insuranceclaims.entity.Claim;
 import com.companyx.insuranceclaims.entity.ClaimStatus;
 import com.companyx.insuranceclaims.entity.ClaimStatusHistory;
 import com.companyx.insuranceclaims.entity.ClaimType;
+import com.companyx.insuranceclaims.repository.ClaimStatusHistoryProjection;
 import com.companyx.insuranceclaims.repository.ClaimStatusHistoryRepository;
 
 
@@ -63,6 +64,29 @@ public class ClaimServiceIntegrationTest {
 	}
 	
 	
-	
+	@Test
+	void updateStatusAndAppendHistory() {
+	  	Claim claim = Claim.create(
+	  			"CLM-SERVICE-UPDATE-001",
+	  			"POL-SERVICE-UPDATE-001",
+	  			"Maria Villanueva",
+	  			LocalDate.of(2026, 9, 21),
+	  			ClaimType.AUTO,
+	  			new BigDecimal("2250.00"),
+	  			"Collision damage");
+	  	
+	  	Claim created = service.create(claim);
+	  	Claim updated = service.updateStatus(created.getId(), ClaimStatus.UNDER_REVIEW);
+	  	
+	  	List<ClaimStatusHistoryProjection> history = historyRepository.findByClaimId(created.getId());
+	  	
+	  	assertAll(
+	  			() -> assertEquals(ClaimStatus.UNDER_REVIEW, updated.getStatus()),
+	  			() -> assertEquals(1L, updated.getVersion()),
+	  			() -> assertEquals(2, history.size()),
+	  			() -> assertEquals(ClaimStatus.SUBMITTED, history.get(0).getStatus()),
+	  			() -> assertEquals(ClaimStatus.UNDER_REVIEW, history.get(1).getStatus())	  			
+	  			);
+	}
 	
 }

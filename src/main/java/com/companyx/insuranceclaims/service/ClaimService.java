@@ -1,5 +1,6 @@
 package com.companyx.insuranceclaims.service;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 import org.springframework.data.domain.Page;
@@ -10,6 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.companyx.insuranceclaims.dto.ClaimStatusHistoryResponse;
 import com.companyx.insuranceclaims.entity.Claim;
+import com.companyx.insuranceclaims.entity.ClaimStatus;
 import com.companyx.insuranceclaims.entity.ClaimStatusHistory;
 import com.companyx.insuranceclaims.exception.DuplicateClaimNumberException;
 import com.companyx.insuranceclaims.exception.ClaimNotFoundException;
@@ -96,6 +98,21 @@ public class ClaimService {
 				projection.getClaimNumber(),
 				projection.getStatus(),
 				projection.getChangedAt());
+	}
+	
+	@Transactional
+	public Claim updateStatus(long claimId, ClaimStatus newStatus) {
+		Claim claim = repository.findById(claimId)
+							.orElseThrow(() -> new ClaimNotFoundException(claimId));
+		
+		claim.transitionTo(newStatus);		
+		ClaimStatusHistory history = ClaimStatusHistory.record(claim, claim.getStatus(), LocalDateTime.now());
+		
+		historyRepository.save(history);
+		return claim;
+		
+		
+		
 	}
 	
 }

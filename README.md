@@ -630,3 +630,255 @@ The Docker-initialized baseline was manually verified:
 
 Docker initialization remains the schema owner for this application. Flyway
 will instead be demonstrated in a separate Spring Boot sample application.
+
+## Post-baseline schema evolution without Flyway
+
+After the baseline was verified, two incremental SQL scripts extended the
+schema while preserving existing data:
+
+- `database/01-add-claim-status-history.sql`
+  - Creates `claim_status_history` in the application and test databases.
+  - Adds a foreign key to `claims(id)` with `ON DELETE CASCADE`.
+  - Adds an index on `(claim_id, changed_at, id)`.
+  - Backfills one initial history row for every existing claim.
+- `database/02-add-claims-version.sql`
+  - Adds the non-null `claims.version` column with an initial value of zero.
+  - Supports JPA optimistic locking through `@Version`.
+
+The original `database/00-init.sql` remains unchanged so the original baseline
+is visible in the project history.
+
+For a new empty PostgreSQL volume, the official PostgreSQL image executes the
+mounted scripts in filename order:
+
+```text
+00-init.sql
+01-add-claim-status-history.sql
+02-add-claims-version.sql
+```
+
+Docker initialization scripts do not run again for an existing volume.
+Therefore, an existing environment must apply each new script manually, once,
+in release order.
+
+Load the local environment variables:
+
+```bash
+set -a
+source .env
+set +a
+```
+
+Apply the history-table change:
+
+```bash
+docker compose exec -T postgres psql \
+  -v ON_ERROR_STOP=1 \
+  -U "$DB_USERNAME" \
+  -d postgres \
+  < database/01-add-claim-status-history.sql
+```
+
+Apply the optimistic-locking column:
+
+```bash
+docker compose exec -T postgres psql \
+  -v ON_ERROR_STOP=1 \
+  -U "$DB_USERNAME" \
+  -d postgres \
+  < database/02-add-claims-version.sql
+```
+
+These scripts are not idempotent and must not be rerun after they succeed.
+Inspect the schema before applying them to an existing environment.
+
+Verify the application schema:
+
+```bash
+docker compose exec postgres psql \
+  -U "$DB_USERNAME" \
+  -d insurance_claims_boot \
+  -c '\d claims'
+
+docker compose exec postgres psql \
+  -U "$DB_USERNAME" \
+  -d insurance_claims_boot \
+  -c '\d claim_status_history'
+```
+
+Repeat the inspection against `insurance_claims_boot_test` when validating the
+test schema.
+
+No volume reset is required for these incremental changes. Preserving the
+named volume preserves existing claims. Do not use `docker compose down -v`
+to apply a schema change because it permanently deletes the project's local
+database data.
+
+This sample intentionally does not use Flyway. In a production deployment,
+incremental scripts should normally be executed by a controlled database
+migration process that records which versions have been applied. Flyway will
+be demonstrated in a separate Spring Boot application.
+
+## Post-baseline status endpoints
+
+The post-baseline extension adds these endpoints without changing the original
+claim response shapes:
+
+- `PATCH /api/claims/{id}/status`
+- `GET /api/claims/{id}/status-history`
+
+### Update a claim status
+
+The supported workflow is:
+
+```text
+SUBMITTED -> UNDER_REVIEW -> APPROVED
+                         \-> REJECTED
+```
+
+`APPROVED` and `REJECTED` are terminal states. Repeating the current status or
+skipping directly from `SUBMITTED` to a terminal state is rejected.
+
+Move a submitted claim into review:
+
+```bash
+curl -i -X PATCH http://localhost:8082/api/claims/2/status \
+  -H 'Content-Type: application/json' \
+  -d '{"status":"UNDER_REVIEW"}'
+```
+
+A successful request returns `200 OK` using the existing `ClaimResponse`
+shape. The internal optimistic-locking version is not exposed in the API.
+
+Move the claim from review to approval:
+
+```bash
+curl -i -X PATCH http://localhost:8082/api/claims/2/status \
+  -H 'Content-Type: application/json' \
+  -d '{"status":"APPROVED"}'
+```
+
+### Retrieve claim status history
+
+```bash
+curl -i http://localhost:8082/api/claims/2/status-history
+```
+
+The response is ordered chronologically and joins each history record to its
+claim information:
+
+```json
+[
+  {
+    "id": 2,
+    "claimId": 2,
+    "claimNumber": "CLM-BOOT-DOCKER-001",
+    "status": "SUBMITTED",
+    "changedAt": "2026-09-21T07:08:52.70415"
+  },
+  {
+    "id": 3,
+    "claimId": 2,
+    "claimNumber": "CLM-BOOT-DOCKER-001",
+    "status": "UNDER_REVIEW",
+    "changedAt": "2026-09-23T08:28:40.635871"
+  }
+]
+```
+
+`changedAt` values are serialized as ISO-8601 strings.
+
+### Additional API errors
+
+The status extension adds these stable error codes:
+
+| HTTP status | Code | Situation |
+|---|---|---|
+| 409 | `INVALID_STATUS_TRANSITION` | The requested transition violates the claim workflow |
+| 409 | `CONCURRENT_CLAIM_UPDATE` | Another transaction updated the same claim first |
+
+An invalid transition returns a response such as:
+
+```json
+{
+  "status": 409,
+  "code": "INVALID_STATUS_TRANSITION",
+  "message": "Cannot transition claim status from APPROVED to REJECTED"
+}
+```
+
+A missing status is handled by the existing validation contract:
+
+```bash
+curl -i -X PATCH http://localhost:8082/api/claims/2/status \
+  -H 'Content-Type: application/json' \
+  -d '{}'
+```
+
+```json
+{
+  "status": 400,
+  "code": "VALIDATION_FAILED",
+  "message": "Validation failed",
+  "fieldErrors": {
+    "status": "must not be null"
+  }
+}
+```
+
+An unknown enum value also returns `VALIDATION_FAILED` without exposing
+Jackson deserialization details:
+
+```bash
+curl -i -X PATCH http://localhost:8082/api/claims/2/status \
+  -H 'Content-Type: application/json' \
+  -d '{"status":"NOT_A_STATUS"}'
+```
+
+### Transactions and optimistic locking
+
+Updating a status and inserting its history row occur in one service
+transaction. If the transition is invalid, neither the claim nor its history
+is changed.
+
+The `Claim.version` field uses JPA `@Version`. Hibernate includes the current
+version in an update and increments it after a successful update. A request
+using a stale version is rejected rather than silently overwriting a newer
+change. Spring translates that persistence failure to
+`ObjectOptimisticLockingFailureException`, which the API maps to HTTP 409 with
+`CONCURRENT_CLAIM_UPDATE`.
+
+Inspect the current claim and history state directly:
+
+```bash
+docker compose exec postgres psql \
+  -U "$DB_USERNAME" \
+  -d insurance_claims_boot \
+  -c "SELECT id, claim_number, status, version
+      FROM claims
+      ORDER BY id;
+
+      SELECT id, claim_id, status, changed_at
+      FROM claim_status_history
+      ORDER BY claim_id, changed_at, id;"
+```
+
+## Verified post-baseline extension
+
+The status-history and status-update extension was verified as follows:
+
+- The complete automated suite passed with 63 tests.
+- Repository tests used the real PostgreSQL test database.
+- A dedicated integration test loaded two copies of one claim in separate
+  transactions and proved that PostgreSQL rejected the stale update.
+- Docker Compose rebuilt and ran the executable application on Java 17.
+- A claim moved from `SUBMITTED` to `UNDER_REVIEW` and then `APPROVED`.
+- Its optimistic-locking version increased from zero to two.
+- Each successful transition appended one history row.
+- `GET /api/claims/{id}/status-history` returned all three history rows in
+  chronological order.
+- An invalid transition returned HTTP 409 and left the claim version and
+  history count unchanged.
+- Missing and unknown status values returned HTTP 400 with
+  `VALIDATION_FAILED`.
+- Direct SQL queries confirmed the final claim and history rows.

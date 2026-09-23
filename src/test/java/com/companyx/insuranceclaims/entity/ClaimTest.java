@@ -4,11 +4,14 @@ import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
 
 import org.junit.jupiter.api.Test;
+
+import com.companyx.insuranceclaims.exception.InvalidClaimStatusTransitionException;
 
 public class ClaimTest {
 	
@@ -39,4 +42,96 @@ public class ClaimTest {
 		
 		
 	}
+	
+	@Test
+	void transitionsSubmittedClaimToUnderReview() {
+		Claim claim = Claim.create(
+	  			"CLM-TRANSITION-001",
+	  			"POL-TRANSITION-001",
+	  			"Jordan Ramos",
+	  			LocalDate.of(2026, 9, 20),
+	  			ClaimType.AUTO,
+	  			new BigDecimal("1600.00"),
+	  			"Vehicle collision damage"
+	  			);
+		
+		claim.transitionTo(ClaimStatus.UNDER_REVIEW);
+		
+		assertEquals(ClaimStatus.UNDER_REVIEW, claim.getStatus());
+	}
+	
+	@Test
+	void rejectsTransitionToCurrentStatus() {
+	  	Claim claim = Claim.create(
+	  			"CLM-TRANSITION-002",
+	  			"POL-TRANSITION-002",
+	  			"Casey Torres",
+	  			LocalDate.of(2026, 9, 20),
+	  			ClaimType.HOME,
+	  			new BigDecimal("2100.00"),
+	  			"Storm damage"
+	  			);
+	  	
+	  	InvalidClaimStatusTransitionException exception = assertThrows(InvalidClaimStatusTransitionException.class,() -> claim.transitionTo(ClaimStatus.SUBMITTED));
+	  	
+	  	assertAll(
+	  			() -> assertEquals("Cannot transition claim status from SUBMITTED to SUBMITTED", exception.getMessage()),
+	  			() -> assertEquals(ClaimStatus.SUBMITTED, claim.getStatus())	  			
+	  			);
+	}
+	
+	
+	@Test
+	void rejectsTransitionFromSubmittedDirectlyToApproved() {
+	  	Claim claim = Claim.create(
+	  			"CLM-TRANSITION-003",
+	  			"POL-TRANSITION-003",
+	  			"Morgan Reyes",
+	  			LocalDate.of(2026, 9, 20),
+	  			ClaimType.TRAVEL,
+	  			new BigDecimal("2800.00"),
+	  			"Cancelled international trip");
+	  			
+	  	assertThrows(InvalidClaimStatusTransitionException.class, () -> claim.transitionTo(ClaimStatus.APPROVED));
+	  	
+	  	assertEquals(ClaimStatus.SUBMITTED, claim.getStatus());
+	}
+	
+	@Test
+	void transitionsUnderReviewClaimToApproved() {
+	  	Claim claim = Claim.create(
+	  			"CLM-TRANSITION-004",
+	  			"POL-TRANSITION-004",
+	  			"Alex Mendoza",
+	  			LocalDate.of(2026, 9, 21),
+	  			ClaimType.HOME,
+	  			new BigDecimal("3500.00"),
+	  			"Flood damage");
+	  	
+	  	claim.transitionTo(ClaimStatus.UNDER_REVIEW);
+	  	claim.transitionTo(ClaimStatus.APPROVED);
+	  	
+	  	assertEquals(ClaimStatus.APPROVED, claim.getStatus());
+	  	
+	}
+	
+	@Test
+	void transitionsUnderReviewClaimToRejected() {
+	  	Claim claim = Claim.create(
+	  			"CLM-TRANSITION-005",
+	  			"POL-TRANSITION-005",
+	  			"Jamie Cruz",
+	  			LocalDate.of(2026, 9, 21),
+	  			ClaimType.AUTO,
+	  			new BigDecimal("1900.00"),
+	  			"Vehicle flood damage");
+
+	  	claim.transitionTo(ClaimStatus.UNDER_REVIEW);
+	  	claim.transitionTo(ClaimStatus.REJECTED);
+	  	
+	  	assertEquals(ClaimStatus.REJECTED, claim.getStatus());
+	  	
+	  	
+	}
+	
 }

@@ -16,11 +16,13 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.dao.DataIntegrityViolationException;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -33,6 +35,7 @@ import com.companyx.insuranceclaims.service.ClaimPage;
 import com.companyx.insuranceclaims.service.ClaimService;
 import com.companyx.insuranceclaims.exception.ClaimNotFoundException;
 import com.companyx.insuranceclaims.exception.DuplicateClaimNumberException;
+import com.companyx.insuranceclaims.exception.InvalidClaimStatusTransitionException;
 import com.companyx.insuranceclaims.exception.ApiErrorCode;
 import com.companyx.insuranceclaims.exception.InvalidPaginationException;
 
@@ -315,7 +318,127 @@ public class ClaimControllerTest {
 					.andExpect(jsonPath("$[1].changedAt").value("2026-09-21T14:30:00"))
 					;
 		
-		verify(claimService).getStatusHistory(42L);
-		
+		verify(claimService).getStatusHistory(42L);		
 	}
+	
+	@Test
+	void updatesClaimStatus() throws Exception {
+	  	Claim claim = Claim.create(
+	  			"CLM-API-STATUS-001",
+	  			"POL-API-STATUS-001",
+	  			"Maria Santos",
+	  			LocalDate.of(2026, 9, 20),
+	  			ClaimType.AUTO,
+	  			new BigDecimal("1850.75"),
+	  			"Rear bumper damage");
+	  	
+	  	claim.transitionTo(ClaimStatus.UNDER_REVIEW);
+	  	
+	  	when(claimService.updateStatus(42L, ClaimStatus.UNDER_REVIEW)).thenReturn(claim);
+	  	
+	  	String json = """
+	  			  	{
+	  			 		"status": "UNDER_REVIEW"
+	  				}
+	  				""";
+	  	
+	  	mockMvc.perform(patch("/api/claims/{id}/status", 42L).contentType(MediaType.APPLICATION_JSON).content(json))
+	  						.andExpect(status().isOk())
+	  						.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+	  						.andExpect(jsonPath("$.claimNumber").value("CLM-API-STATUS-001"))
+	  						.andExpect(jsonPath("$.status").value("UNDER_REVIEW"));
+	  	
+	  	verify(claimService).updateStatus(42L, ClaimStatus.UNDER_REVIEW);
+	  	
+	}
+	
+	  @Test
+	  void returnsConflictForInvalidStatusTransition() throws Exception {
+	  	when(claimService.updateStatus(42L, ClaimStatus.APPROVED))
+	  			.thenThrow(new InvalidClaimStatusTransitionException(
+	  					ClaimStatus.SUBMITTED,
+	  					ClaimStatus.APPROVED));
+
+	  	String json = """
+	  			{
+	  			  "status": "APPROVED"
+	  			}
+	  			""";
+
+	  	mockMvc.perform(patch("/api/claims/{id}/status", 42L)
+	  				.contentType(MediaType.APPLICATION_JSON)
+	  				.content(json))
+	  			.andExpect(status().isConflict())
+	  			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+	  			.andExpect(jsonPath("$.status").value(409))
+	  			.andExpect(jsonPath("$.code").value("INVALID_STATUS_TRANSITION"))
+	  			.andExpect(jsonPath("$.message").value(
+	  					"Cannot transition claim status from SUBMITTED to APPROVED"));
+
+	  	verify(claimService).updateStatus(42L, ClaimStatus.APPROVED);
+	  }
+	  	  
+	  @Test
+	  void rejectsMissingStatusBeforeCallingService() throws Exception {
+	  	mockMvc.perform(patch("/api/claims/{id}/status", 42L)
+	  				.contentType(MediaType.APPLICATION_JSON)
+	  				.content("{}"))
+	  			.andExpect(status().isBadRequest())
+	  			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+	  			.andExpect(jsonPath("$.status").value(400))
+	  			.andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+	  			.andExpect(jsonPath("$.message").value("Validation failed"))
+	  			.andExpect(jsonPath("$.fieldErrors.status").isString());
+
+	  	verifyNoInteractions(claimService);
+	  }
+	
+	  @Test
+	  void rejectsUnknownStatusBeforeCallingService() throws Exception {
+	  	String json = """
+	  			{
+	  			  "status": "NOT_A_STATUS"
+	  			}
+	  			""";
+
+	  	mockMvc.perform(patch("/api/claims/{id}/status", 42L)
+	  				.contentType(MediaType.APPLICATION_JSON)
+	  				.content(json))
+	  			.andExpect(status().isBadRequest())
+	  			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+	  			.andExpect(jsonPath("$.status").value(400))
+	  			.andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+	  			.andExpect(jsonPath("$.message").value("Validation failed"));
+
+	  	verifyNoInteractions(claimService);
+	  }
+	
+	  @Test
+	  void returnsConflictForConcurrentClaimUpdate() throws Exception {
+	  	when(claimService.updateStatus(42L, ClaimStatus.UNDER_REVIEW))
+	  			.thenThrow(new ObjectOptimisticLockingFailureException(
+	  					Claim.class,
+	  					42L));
+
+	  	String json = """
+	  			{
+	  			  "status": "UNDER_REVIEW"
+	  			}
+	  			""";
+
+	  	mockMvc.perform(patch("/api/claims/{id}/status", 42L)
+	  				.contentType(MediaType.APPLICATION_JSON)
+	  				.content(json))
+	  			.andExpect(status().isConflict())
+	  			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+	  			.andExpect(jsonPath("$.status").value(409))
+	  			.andExpect(jsonPath("$.code").value("CONCURRENT_CLAIM_UPDATE"))
+	  			.andExpect(jsonPath("$.message")
+	  					.value("Claim was updated by another request"));
+
+	  	verify(claimService).updateStatus(42L, ClaimStatus.UNDER_REVIEW);
+	  }
+
+	  
+	  
 }

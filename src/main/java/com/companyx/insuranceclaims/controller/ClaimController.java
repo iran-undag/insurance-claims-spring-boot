@@ -4,6 +4,7 @@ import java.util.List;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -16,6 +17,7 @@ import com.companyx.insuranceclaims.dto.ClaimPageResponse;
 import com.companyx.insuranceclaims.dto.ClaimResponse;
 import com.companyx.insuranceclaims.dto.ClaimStatusHistoryResponse;
 import com.companyx.insuranceclaims.dto.CreateClaimRequest;
+import com.companyx.insuranceclaims.dto.UpdateClaimStatusRequest;
 import com.companyx.insuranceclaims.service.ClaimService;
 
 import jakarta.validation.Valid;
@@ -56,4 +58,13 @@ public class ClaimController {
 		return claimService.getStatusHistory(id);
 		
 	}
+	
+	@PatchMapping("/{id}/status")
+	public ClaimResponse updateStatus(@PathVariable("id") long id,
+										@Valid @RequestBody UpdateClaimStatusRequest request) {
+		
+		return ClaimResponse.from(claimService.updateStatus(id, request.getStatus()));		
+	}
+	
+	
 }

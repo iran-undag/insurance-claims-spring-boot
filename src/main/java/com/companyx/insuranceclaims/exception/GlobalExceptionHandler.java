@@ -6,6 +6,8 @@ import java.util.Map;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -86,4 +88,43 @@ public class GlobalExceptionHandler {
 	  			.status(HttpStatus.CONFLICT)
 	  			.body(response);
 	  }
+	  
+	  @ExceptionHandler(InvalidClaimStatusTransitionException.class)
+	  public ResponseEntity<ErrorResponse> handleInvalidStatusTransition(InvalidClaimStatusTransitionException exception){
+		  
+		  ErrorResponse response = new ErrorResponse(HttpStatus.CONFLICT.value(),
+				  										ApiErrorCode.INVALID_STATUS_TRANSITION,
+				  										exception.getMessage());
+		  
+		  return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
+	  }
+	  
+	  @ExceptionHandler(HttpMessageNotReadableException.class)
+	  public ResponseEntity<ErrorResponse> handleUnreadableRequest(HttpMessageNotReadableException exception){
+		  ErrorResponse response = new ErrorResponse(
+				  							HttpStatus.BAD_REQUEST.value(),
+				  							ApiErrorCode.VALIDATION_FAILED,
+				  							"Validation failed"
+				  							);
+		  
+		  return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+	  }
+	  
+	  //optimistic locking is handled by JPA/Hibernate. We need to handle exception thrown
+	  //by Hibernate if optimistic locking failed.
+	  @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
+	  public ResponseEntity<ErrorResponse> handleOptimisticLockingFailure(
+	  		ObjectOptimisticLockingFailureException exception) {
+
+	  	ErrorResponse response = new ErrorResponse(
+	  			HttpStatus.CONFLICT.value(),
+	  			ApiErrorCode.CONCURRENT_CLAIM_UPDATE,
+	  			"Claim was updated by another request");
+
+	  	return ResponseEntity
+	  			.status(HttpStatus.CONFLICT)
+	  			.body(response);
+	  }
+
+	  
 }

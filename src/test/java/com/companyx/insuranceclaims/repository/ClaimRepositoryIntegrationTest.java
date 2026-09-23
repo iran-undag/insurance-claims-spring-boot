@@ -21,7 +21,7 @@ import com.companyx.insuranceclaims.entity.ClaimType;
 
 @DataJpaTest
 @ActiveProfiles("test")
-@AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE) //tells Boot not to replace PostgreSql with an embedded database
+@AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE) //tells Boot not to replace PostgreSql with an embedded database, we want real PostgreSQL behavior
 public class ClaimRepositoryIntegrationTest {
 	
 	@Autowired
@@ -69,5 +69,22 @@ public class ClaimRepositoryIntegrationTest {
 				() -> assertTrue(claimRepository.existsByClaimNumber("CLM-REPOSITORY-EXISTS-001")),
 				() -> assertFalse(claimRepository.existsByClaimNumber("CLM-REPOSITORY-MISSING"))			
 				);
+	}
+	
+	@Test
+	void initializesOptimisticLockVersion() {
+		Claim claim = Claim.create(
+	  			"CLM-REPOSITORY-VERSION-001",
+	  			"POL-REPOSITORY-VERSION-001",
+	  			"Robin Navarro",
+	  			LocalDate.of(2026, 9, 19),
+	  			ClaimType.TRAVEL,
+	  			new BigDecimal("2400.00"),
+	  			"Cancelled flight"
+				);
+		
+		Claim saved = claimRepository.saveAndFlush(claim);
+		
+		assertEquals(0L, saved.getVersion());				
 	}
 }

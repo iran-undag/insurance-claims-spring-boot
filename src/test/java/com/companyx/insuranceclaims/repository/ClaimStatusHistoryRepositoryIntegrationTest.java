@@ -23,7 +23,7 @@ import com.companyx.insuranceclaims.entity.ClaimType;
 
 @DataJpaTest
 @ActiveProfiles("test")
-@AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE) //tells Boot not to replace PostgreSql with an embedded database
+@AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE) //tells Boot not to replace PostgreSql with an embedded database, we want real PostgreSQL behavior
 class ClaimStatusHistoryRepositoryIntegrationTest {
 
 	@Autowired
