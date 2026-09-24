@@ -13,6 +13,7 @@ services:
             - ./database/00-init.sql:/docker-entrypoint-initdb.d/00-init.sql:ro
             - ./database/01-add-claim-status-history.sql:/docker-entrypoint-initdb.d/01-add-claim-status-history.sql:ro
             - ./database/02-add-claims-version.sql:/docker-entrypoint-initdb.d/02-add-claims-version.sql:ro
+            - ./database/03-add-incident-location.sql:/docker-entrypoint-initdb.d/03-add-incident-location.sql:ro
         healthcheck:
             test:
                 - CMD-SHELL

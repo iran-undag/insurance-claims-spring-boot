@@ -102,8 +102,7 @@ public class ClaimService {
 	
 	@Transactional
 	public Claim updateStatus(long claimId, ClaimStatus newStatus) {
-		Claim claim = repository.findById(claimId)
-							.orElseThrow(() -> new ClaimNotFoundException(claimId));
+		Claim claim = repository.findById(claimId).orElseThrow(() -> new ClaimNotFoundException(claimId));
 		
 		claim.transitionTo(newStatus);		
 		ClaimStatusHistory history = ClaimStatusHistory.record(claim, claim.getStatus(), LocalDateTime.now());

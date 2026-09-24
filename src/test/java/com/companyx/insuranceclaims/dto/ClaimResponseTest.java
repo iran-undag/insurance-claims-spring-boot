@@ -42,5 +42,23 @@ public class ClaimResponseTest {
   				() -> assertEquals(claim.getCreatedAt(), response.getCreatedAt())				
 				);	
 	}
+	
+	@Test
+	void includesIncidentLocationInResponse() {
+		Claim claim = Claim.create(
+	  			"CLM-DTO-LOCATION-002",
+	  			"POL-DTO-LOCATION-002",
+	  			"Paolo Reyes",
+	  			LocalDate.of(2026, 9, 22),
+	  			ClaimType.AUTO,
+	  			new BigDecimal("1750.00"),
+	  			"Side panel damage",
+	  			"Makati City"				
+				);
+		
+		ClaimResponse response = ClaimResponse.from(claim);
+		
+		assertEquals("Makati City", response.getIncidentLocation());
+	}
 
 }

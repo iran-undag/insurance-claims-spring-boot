@@ -233,6 +233,28 @@ public class CreateClaimRequestValidationTest {
 	  	}
 	}
 	
+	@Test
+	void rejectsIncidentLocationLongerThanMaximum() {
+	  	CreateClaimRequest request = new CreateClaimRequest(
+	  			"CLM-DTO-LOCATION-004",
+	  			"POL-DTO-LOCATION-004",
+	  			"Updated Client",
+	  			LocalDate.now(),
+	  			ClaimType.AUTO,
+	  			new BigDecimal("100.00"),
+	  			"Windshield damage",
+	  			"L".repeat(201));
+
+	  	try (ValidatorFactory factory = Validation.buildDefaultValidatorFactory()) {
+
+	  		Validator validator = factory.getValidator();
+
+	  		Set<ConstraintViolation<CreateClaimRequest>> violations = validator.validate(request);
+
+	  		assertTrue(violations.stream().anyMatch(violation -> "incidentLocation".equals(violation.getPropertyPath().toString())));
+	  	}
+
+	}
 	
 	
 }

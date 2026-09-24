@@ -23,6 +23,7 @@ public class ClaimResponse {
 	private final ClaimStatus status;
 	private final String description;
 	private final LocalDateTime createdAt;
+	private final String incidentLocation;
 	
 	private ClaimResponse(Claim claim) {
 		
@@ -36,6 +37,7 @@ public class ClaimResponse {
 		this.status = claim.getStatus();
 		this.description = claim.getDescription();
 		this.createdAt = claim.getCreatedAt();		
+		this.incidentLocation = claim.getIncidentLocation();
 	}
 	
 	public static ClaimResponse from(Claim claim) {

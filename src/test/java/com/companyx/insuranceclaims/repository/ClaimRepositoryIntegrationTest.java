@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
+import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
 import org.springframework.test.context.ActiveProfiles;
 
 import com.companyx.insuranceclaims.entity.Claim;
@@ -26,6 +27,9 @@ public class ClaimRepositoryIntegrationTest {
 	
 	@Autowired
 	private ClaimRepository claimRepository;
+	
+	@Autowired
+	private TestEntityManager entityManager;
 	
 	@Test
 	void savesAndRetrievesClaimFromPostgreSql() {
@@ -87,4 +91,29 @@ public class ClaimRepositoryIntegrationTest {
 		
 		assertEquals(0L, saved.getVersion());				
 	}
+	
+	@Test
+	void savesAndRetrievesOptionalIncidentLocation() {
+		Claim claim = Claim.create(
+	  			"CLM-REPOSITORY-LOCATION-001",
+	  			"POL-REPOSITORY-LOCATION-001",
+	  			"Camille Santos",
+	  			LocalDate.of(2026, 9, 22),
+	  			ClaimType.AUTO,
+	  			new BigDecimal("2100.00"),
+	  			"Windshield damage",
+	  			"Taguig City"
+				);
+		
+		Claim saved = claimRepository.saveAndFlush(claim);
+		
+		entityManager.clear();//forces the retrieval to come from PostgreSQL instead of returning the already-managed Java object
+		
+		Claim found = claimRepository.findById(saved.getId()).orElseThrow();
+		
+		assertEquals("Taguig City", found.getIncidentLocation());
+		
+	}
+	
+	
 }

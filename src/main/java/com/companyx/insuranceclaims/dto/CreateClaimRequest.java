@@ -17,45 +17,49 @@ import lombok.Getter;
 
 @Getter
 public class CreateClaimRequest {
-	
+
 	@NotBlank
 	@Size(min = 5, max = 30)
 	private final String claimNumber;
-	
+
 	@NotBlank
 	@Size(min = 5, max = 30)
 	private final String policyNumber;
-	
+
 	@NotBlank
 	@Size(min = 2, max = 100)
 	private final String claimantName;
-	
+
 	@NotNull
 	@PastOrPresent
 	private final LocalDate incidentDate;
-	
+
 	@NotNull
 	private final ClaimType claimType;
-	
+
 	@NotNull
 	@DecimalMin(value = "0.0", inclusive = false)
-	private final BigDecimal claimedAmount;	
-	
+	private final BigDecimal claimedAmount;
+
 	@NotBlank
 	@Size(max = 500)
 	private final String description;
-	
-	
-	@JsonCreator
-	public CreateClaimRequest(
-			@JsonProperty("claimNumber") String claimNumber,
-			@JsonProperty("policyNumber") String policyNumber,
-			@JsonProperty("claimantName") String claimantName,
-			@JsonProperty("incidentDate") LocalDate incidentDate,
-			@JsonProperty("claimType") ClaimType claimType,
-			@JsonProperty("claimedAmount") BigDecimal claimedAmount,
-			@JsonProperty("description") String description) {
-		
+
+	@Size(max = 200)
+	private final String incidentLocation;
+
+	// this is the old constructor annotated with @JsonCreator. after we add new
+	// optional field 'incidentLocation',
+	// we remove @JsonCreator, set incidentLocation=null inside the method and
+	// overload with a new constructor.
+	// this is for the sake of old Java code using seven-argument constructor.
+	// Jackson will no longer use this
+	// since the annotation is gone
+	public CreateClaimRequest(@JsonProperty("claimNumber") String claimNumber,
+			@JsonProperty("policyNumber") String policyNumber, @JsonProperty("claimantName") String claimantName,
+			@JsonProperty("incidentDate") LocalDate incidentDate, @JsonProperty("claimType") ClaimType claimType,
+			@JsonProperty("claimedAmount") BigDecimal claimedAmount, @JsonProperty("description") String description) {
+
 		this.claimNumber = claimNumber;
 		this.policyNumber = policyNumber;
 		this.claimantName = claimantName;
@@ -63,19 +67,36 @@ public class CreateClaimRequest {
 		this.claimType = claimType;
 		this.claimedAmount = claimedAmount;
 		this.description = description;
-		
+		this.incidentLocation = null;
+
 	}
-	
-	//Jackson converts the HTTP request body (JSON) into CreateClaimRequest DTO via @JsonCreator constructor
-	//this method converts the DTO into a Claim entity
+
+	// Jackson selects this constructor due to @JsonCreator annotation. If the input
+	// JSON omits incidentLocation, Jackson passes null
+	// Jackson reading JSON->@JsonCreator constructor->incidentLocation from JSON,
+	// or null when absent
+	@JsonCreator
+	public CreateClaimRequest(@JsonProperty("claimNumber") String claimNumber,
+			@JsonProperty("policyNumber") String policyNumber, @JsonProperty("claimantName") String claimantName,
+			@JsonProperty("incidentDate") LocalDate incidentDate, @JsonProperty("claimType") ClaimType claimType,
+			@JsonProperty("claimedAmount") BigDecimal claimedAmount, @JsonProperty("description") String description,
+			@JsonProperty("incidentLocation") String incidentLocation) {
+
+		this.claimNumber = claimNumber;
+		this.policyNumber = policyNumber;
+		this.claimantName = claimantName;
+		this.incidentDate = incidentDate;
+		this.claimType = claimType;
+		this.claimedAmount = claimedAmount;
+		this.description = description;
+		this.incidentLocation = incidentLocation;
+	}
+
+	// Jackson converts the HTTP request body (JSON) into CreateClaimRequest DTO via
+	// @JsonCreator constructor
+	// this method converts the DTO into a Claim entity
 	public Claim toClaim() {
-		return Claim.create(
-				claimNumber, 
-				policyNumber, 
-				claimantName, 
-				incidentDate, 
-				claimType, 
-				claimedAmount, 
-				description);
+		return Claim.create(claimNumber, policyNumber, claimantName, incidentDate, claimType, claimedAmount,
+				description, incidentLocation);
 	}
 }

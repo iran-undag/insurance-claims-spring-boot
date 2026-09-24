@@ -882,3 +882,217 @@ The status-history and status-update extension was verified as follows:
 - Missing and unknown status values returned HTTP 400 with
   `VALIDATION_FAILED`.
 - Direct SQL queries confirmed the final claim and history rows.
+
+## Optional-field compatibility extension
+
+After the status workflow was verified, the claim API gained one optional
+field:
+
+```text
+incidentLocation
+```
+
+The database stores it as nullable `VARCHAR(200)`. Existing rows remain valid
+without a fabricated default value.
+
+### Apply the incremental schema change
+
+`database/03-add-incident-location.sql` adds `incident_location` to `claims`
+in both the application and test databases.
+
+For an existing named volume, load the environment and apply the script once:
+
+```bash
+set -a
+source .env
+set +a
+
+docker compose exec -T postgres psql \
+  -v ON_ERROR_STOP=1 \
+  -U "$DB_USERNAME" \
+  -d postgres \
+  < database/03-add-incident-location.sql
+```
+
+The script is not idempotent. Do not rerun it after it succeeds, and do not
+reset the volume to apply this additive change.
+
+For a fresh empty volume, Compose mounts and PostgreSQL executes the current
+script sequence in filename order:
+
+```text
+00-init.sql
+01-add-claim-status-history.sql
+02-add-claims-version.sql
+03-add-incident-location.sql
+```
+
+Verify the new column directly:
+
+```bash
+docker compose exec postgres psql \
+  -U "$DB_USERNAME" \
+  -d insurance_claims_boot \
+  -c '\d claims'
+```
+
+### Backward-compatible request behavior
+
+`incidentLocation` is optional in `CreateClaimRequest` and has a maximum
+length of 200 characters. It has no `@NotNull` or `@NotBlank` constraint.
+
+An older client can continue omitting the property:
+
+```bash
+curl -i -X POST http://localhost:8082/api/claims \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "claimNumber": "CLM-OPTIONAL-LEGACY-001",
+    "policyNumber": "POL-OPTIONAL-LEGACY-001",
+    "claimantName": "Legacy Client",
+    "incidentDate": "2026-09-22",
+    "claimType": "AUTO",
+    "claimedAmount": 1450.00,
+    "description": "Created without the optional field"
+  }'
+```
+
+Jackson passes `null` to the request DTO constructor for the missing property,
+and PostgreSQL stores SQL `NULL`.
+
+An updated client can provide the property:
+
+```bash
+curl -i -X POST http://localhost:8082/api/claims \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "claimNumber": "CLM-OPTIONAL-UPDATED-001",
+    "policyNumber": "POL-OPTIONAL-UPDATED-001",
+    "claimantName": "Updated Client",
+    "incidentDate": "2026-09-22",
+    "claimType": "HOME",
+    "claimedAmount": 2650.00,
+    "description": "Created with the optional field",
+    "incidentLocation": "Pasig City"
+  }'
+```
+
+`ClaimResponse` now includes `incidentLocation`. It is `null` for claims that
+do not supply a location and contains the stored value for updated clients.
+
+This extension assumes older clients use tolerant response deserialization.
+For a Jackson client, the legacy response DTO can declare:
+
+```java
+@JsonIgnoreProperties(ignoreUnknown = true)
+public class ClaimResponse {
+    // Fields known to the older client
+}
+```
+
+The server cannot force external clients to ignore unknown response fields.
+If that behavior cannot be guaranteed, preserve the old response shape and
+introduce a versioned or separate response contract instead.
+
+### Optional-field validation
+
+A value longer than 200 characters returns HTTP 400 with the existing stable
+validation code:
+
+```json
+{
+  "status": 400,
+  "code": "VALIDATION_FAILED",
+  "message": "Validation failed",
+  "fieldErrors": {
+    "incidentLocation": "size must be between 0 and 200"
+  }
+}
+```
+
+Validation occurs before the service is called, so the rejected request does
+not insert a claim.
+
+### Inspect old-client and updated-client rows
+
+```bash
+docker compose exec postgres psql \
+  -U "$DB_USERNAME" \
+  -d insurance_claims_boot \
+  -c "SELECT id,
+             claim_number,
+             incident_location,
+             status,
+             version
+      FROM claims
+      ORDER BY id;"
+```
+
+Older-client rows show SQL `NULL` for `incident_location`; updated-client rows
+show the supplied value.
+
+## Verified optional-field extension
+
+The optional-field extension was verified as follows:
+
+- The complete clean Maven build passed with 71 tests.
+- Old JSON request payloads continued to deserialize and create claims.
+- Updated JSON payloads persisted and returned `incidentLocation`.
+- A compatibility test deserialized the expanded response into a legacy DTO
+  annotated with `@JsonIgnoreProperties(ignoreUnknown = true)`.
+- PostgreSQL integration testing forced a database reload and confirmed that
+  the optional value was persisted.
+- Existing rows and newly created older-client rows retained SQL `NULL`.
+- Docker Compose rebuilt and ran the updated executable application.
+- A 201-character value returned `VALIDATION_FAILED` and created no database
+  row.
+- Direct SQL queries confirmed both the nullable and populated cases.
+
+## Optional-field implementation summary
+
+The optional `incidentLocation` field was introduced through these focused
+changes:
+
+1. `CreateClaimRequest`
+   - Added the optional `incidentLocation` field.
+   - Added `@Size(max = 200)` without making the field required.
+   - Retained the existing constructor for Java callers and delegated it with
+     a null location.
+   - Added the location to the `@JsonCreator` constructor so updated JSON
+     clients can provide it while older payloads continue to work.
+   - Passed the location to the `Claim` factory in `toClaim()`.
+
+2. `Claim`
+   - Added the nullable `incidentLocation` entity property.
+   - Mapped it to the `incident_location` column with a maximum length of 200.
+   - Retained the existing `Claim.create(...)` factory overload for callers
+     that do not provide the optional value.
+   - Added a factory overload that accepts and stores the location.
+
+3. `ClaimResponse`
+   - Added `incidentLocation` to the response representation.
+   - Mapped the value from the `Claim` entity.
+   - Returns JSON null for claims without a location and the stored string for
+     claims that provide one.
+
+4. `database/03-add-incident-location.sql`
+   - Added nullable `VARCHAR(200)` column `incident_location` to `claims` in
+     both the application and test databases.
+   - Left existing rows unchanged with SQL `NULL`.
+   - Used explicit transactions and stopped execution on SQL errors.
+
+5. `compose.yaml`
+   - Mounted `03-add-incident-location.sql` after scripts `00`, `01`, and `02`
+     so a fresh PostgreSQL volume receives the complete schema in order.
+
+6. Compatibility and persistence tests
+   - `CreateClaimRequestJsonTest` covers JSON both with and without the new
+     property and verifies request-to-entity mapping.
+   - `CreateClaimRequestValidationTest` covers the 200-character limit.
+   - `ClaimResponseTest` verifies entity-to-response mapping.
+   - `ClaimResponseBackwardCompatibilityTest` proves that a legacy response
+     DTO using `@JsonIgnoreProperties(ignoreUnknown = true)` can read the
+     expanded response.
+   - `ClaimControllerTest` covers the updated POST request and response.
+   - `ClaimRepositoryIntegrationTest` persists and reloads the optional value
+     through real PostgreSQL.
